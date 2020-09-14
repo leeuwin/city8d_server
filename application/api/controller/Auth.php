@@ -8,6 +8,7 @@ use app\common\model\UserInfo;
 use app\common\model\UserToken;
 use app\common\validate\UserValidate;
 use Exception;
+use think\facade\Log;
 use think\process\exception\Failed;
 use think\Request;
 use think\response\Json;
@@ -23,7 +24,8 @@ class Auth extends Controller
         'login',
         'wxlogin',
         'register',
-        'smslogin'
+        'smslogin',
+        'index'
     ];
 
     /**d
@@ -212,35 +214,42 @@ class Auth extends Controller
     public function wxlogin(Request $request, User $user,UserInfo $userinfo, UserToken $userToken, UserValidate $validate)
     {
         $param = $request->param();
-
-        //miniapp
-        $appid = sysconf('wechat_xcx_app_id');
-        if(empty($appid)){
-            $appid='wxc189df90356206fe';
+        if(!isset($param['code'])){
+            return error('请设置wxcode参数');
         }
-        $secret = sysconf('wechat_xcx_app_secret');
+        //miniapp
+        //$appid = sysconf('wechat_xcx_app_id');
+        if(empty($appid)){
+            $appid='wx72f8912d30adb441';
+        }
+        //$secret = sysconf('wechat_xcx_app_secret');
         if(empty($secret)){
-            $secret='ec370bb44229eaa8a776e782a6040673';
+            $secret='46cfd45178c548c4fd2887f05771360e';
         }
         $code=$param['code'];
         $url = 'https://api.weixin.qq.com/sns/jscode2session?appid=' . $appid ;
         $url .=  '&secret=' . $secret;
         $url .=  '&js_code=' . $code;
         $url .= '&grant_type=authorization_code';
-        $returnjson = HttpService::get($url);
-        $returnjson = json_decode($returnjson, true);
+
+        //$returnjson = HttpService::get($url);
         //{"session_key":"Kd2Ha5P\/6pqVV1lNNeV8hw==","openid":"oE1zk5I3qEb8JT3TH6KaZq4e-c3s"}       success
         //{"errcode":40029,"errmsg":"invalid code, hints: [ req_id: fIJBu.wgE-xRUbRA ]"}            fail
+        $returnjson = '{"session_key":"Kd2Ha5P/6pqVV1lNNeV8hw==","openid":"owzZL5GODiegcmE8hsEBI68VSd3B"}';
+        $returnjson = json_decode($returnjson, true);
+
         if (isset($returnjson['errcode'])) {
             return error('网络繁忙，请稍候重试~');
         }
         $openid = $returnjson['openid'];
-        ///$openid = 0 ;
         $session_key = $returnjson['session_key'];
+
         //检查用户是否已注册
-        $info = Db::table('userinfo')->where('openid',$openid)->find();
+        $info = Db::table('user')->where('openid',$openid)->find();
+        Log::info(json_encode($info));
         // 没有注册 进行注册
         if (empty($info)) {
+            Log::info("注册用户".$openid);
             //先默认插入用户基本信息，然后要求用户上传信息更新；
             //构造user表的信息
             $user_param['username'] = $openid;
@@ -249,30 +258,20 @@ class Auth extends Controller
             if(isset($param['nickname'])){
                 $user_param['nickname'] = $param['nickname'];
             }
+            $user_param['openid'] = $openid;
+            $user_param['session_key'] = $session_key;
+            $user_param['register_time'] = time();
             $res = $user::create($user_param);
 
-            $userinfo_param['id']=(int)($res->getKey());
-            if(empty($userinfo_param['id'])){
+            $userinfo_param['uid']=(int)($res->getKey());
+            if(empty($userinfo_param['uid'])){
                 return error('注册失败');
             }
-
-            $userinfo_param['invitecode'] = Config::get('jwt.invitecode_offset')+$userinfo_param['id'];
-            $userinfo_param['openid'] = $openid;
-            $userinfo_param['sessionkey'] = $session_key;
+            //构造userinfo表信息
+            $userinfo_param['invitecode'] = Config::get('jwt.invitecode_offset')+$userinfo_param['uid'];
             $userinfo_param['password1'] = '123456';
             $userinfo_param['status'] = 1;
-            if(isset($param['avatar'])){
-                $userinfo_param['avatar'] = $param['avatar'];
-            }
-            if(isset($param['gender'])){
-                $userinfo_param['gender'] = $param['gender'];
-            }
-            if(isset($param['city'])){
-                $userinfo_param['city'] = $param['city'];
-            }
-            if(isset($param['province'])){
-                $userinfo_param['province'] = $param['province'];
-            }
+
             //检查是否有代理参数
             if(isset($param['invitecode'])){
                 //找出代理
@@ -285,20 +284,20 @@ class Auth extends Controller
             }
             $res = $userinfo::create($userinfo_param);
             if(empty($res->getKey())){
-                $user->whereIn('id', $userinfo_param['id'])->delete();
+                $user->whereIn('id', $userinfo_param['uid'])->delete();
                 return error('注册失败');
             }
 
             //登录逻辑
             try {
                 $token_time = time();
-                $token = $this->getToken( $userinfo_param['id'], $token_time);
-                $userToken->addUserToken( $userinfo_param['id'], $token, $token_time);
+                $token = $this->getToken( $userinfo_param['uid'], $token_time);
+                $userToken->addUserToken( $userinfo_param['uid'], $token, $token_time);
             } catch (Exception $e) {
                 return error($e->getMessage());
             }
             //返回
-            $userinfo_db = Db::table('userinfo')->where(['id'=>$userinfo_param['id']])->find();
+            $userinfo_db = Db::table('userinfo')->where(['uid'=>$userinfo_param['uid']])->find();
             $result = array_merge($user_param,$userinfo_db);
             $result['token'] = $token;
             unset($result['password']);
@@ -310,26 +309,29 @@ class Auth extends Controller
             return success($result, '登录成功');
 
         }else{
-            $userinfo_param = $info;
+            $user_param = $info;
             //return success($info);
             try {
+                //更新token时间
                 //$user  = $model::login($info);
                 $token_time = time();
-                $token = $this->getToken($userinfo_param['id'], $token_time);
-                $userToken->addUserToken($userinfo_param['id'], $token, $token_time);
+                $token = $this->getToken($user_param['id'], $token_time);
+                $userToken->addUserToken($user_param['id'], $token, $token_time);
             } catch (Exception $e) {
                 return error($e->getMessage());
             }
 
             //返回用户基本信息&token
             //返回用户基本信息&token
-            $user_param = Db::table('user')->where('id',$userinfo_param['id'])->find();
-            if(empty($user_param))
+            $userinfo_param = Db::table('userinfo')->where('uid',$user_param['id'])->find();
+            if(empty($userinfo_param))
             {
-                return error('登录失败');
+                $result = $user_param;
+            }else{
+
+                $result = array_merge($user_param,$userinfo_param);
             }
             //返回数据
-            $result = array_merge($user_param,$userinfo_param);
             $result['token'] = $token;
             unset($result['password']);
             unset($result['password1']);
@@ -432,4 +434,6 @@ class Auth extends Controller
         return success([], '退出登录成功');
     }
 
+    public function index(){
+    }
 }

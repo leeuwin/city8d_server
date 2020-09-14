@@ -20,7 +20,7 @@ class UserToken extends Model
     public function getUserTokenByUid($uid)
     {
         try {
-            $info = $this->where('user_id', $uid)->findOrEmpty()->toArray();
+            $info = $this->where('uid', $uid)->findOrEmpty()->toArray();
         } catch (\Exception $e) {
 
             Log::error($e->getMessage());
@@ -34,7 +34,7 @@ class UserToken extends Model
     public function updateUserToken($uid, $token_time)
     {
         try {
-            return $this->where('user_id', $uid)->update([
+            return $this->where('uid', $uid)->update([
                 'token_time' => $token_time,
             ]);
         } catch (\Exception $e) {
@@ -45,16 +45,16 @@ class UserToken extends Model
 
     public function addUserToken($uid, $token, $token_time)
     {
-        $record = $this->where('user_id', $uid)->find();
+        $record = $this->where('uid', $uid)->find();
         if ($record) {
-            return $this->where('user_id', $uid)->update([
+            return $this->where('uid', $uid)->update([
                 'token' => $token,
                 'token_time' => $token_time
             ]);
         }
 
         return $this->insert([
-            'user_id' => $uid,
+            'uid' => $uid,
             'token' => $token,
             'token_time' => $token_time
         ]);

@@ -27,9 +27,9 @@ trait ApiAuth
         //使用者
         'aud' => 'aud',
         //过期时间，以秒为单位，默认2小时
-        'ttl' => 30,
+        'ttl' => 3600,
         //刷新时间，以秒为单位，默认14天，以
-        'refresh_ttl' => 1209600,
+        'refresh_ttl' => 86400,
         //是否自动刷新，开启后可自动刷新token，附在header中返回，name为`Authorization`,字段为`Bearer `+$token
         'auto_refresh' => true,
         //黑名单宽限期，以秒为单位，首次token刷新之后在此时间内原token可以继续访问
@@ -111,7 +111,7 @@ trait ApiAuth
             if (!$token_verify) {
                 throw new HttpResponseException(unauthorized('token验证错误,错误信息:' . $token_verify_msg));
             }
-
+            return success($userToken);
         }
     }
 
@@ -126,6 +126,7 @@ trait ApiAuth
     public function getToken($uid, $token_time, $data = [])
     {
         $config = $this->config;
+        Log::info($config);
         //发放token
         $signer = new Sha256();
         $privateKey = new Key($config['secret']);
