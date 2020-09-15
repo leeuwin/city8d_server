@@ -7,6 +7,7 @@ use app\admin\controller\Login;
 use app\common\model\User as UserModel;
 use app\common\model\UserToken;
 use app\common\model\UserInfo as UserInfoModel;
+use app\common\validate\TripValidate;
 use app\common\validate\UserValidate;
 use think\App;
 use think\Db;
@@ -40,6 +41,10 @@ class Trip extends Controller
          * 3、出发日期，departure_date
          * */
 
+        //查询行程类型     1司机行程 2乘客行程 3寄货行程
+        $type = !isset($param['type'])?1:$param['type'];
+
+        //查询条件拼装
         $map = null;
         $today_date = date('Y-m-d');
         if(!empty($param['departure_date'])){
@@ -64,7 +69,8 @@ class Trip extends Controller
             }
         }
         $trips = Db::table('trip')
-            ->where('departure_date','egt',$today_date)
+            ->where('type','eq',$type)                          //限定类型
+            ->where('departure_timestamp','egt',time())         //限定查询目标须是此刻之后的
             ->where($map)
             ->select();
 
@@ -83,8 +89,21 @@ class Trip extends Controller
         return $result ? success() : error();
     }
     //发布，增加
-    public function publish($id, Request $request, UserModel $model, UserValidate $validate)
+    public function publish($id, Request $request, UserModel $model, TripValidate $validate)
     {
+        $param = $request->param();
+        //查询行程类型    0乘客行程 1司机行程 2寄货行程
+        $type = !isset($param['type'])?1:$param['type'];
+        if(1 == $type){
+            $validate_result = $validate->scene('driver-publish')->check($param);
+        }else if(2 == $type){
+            $validate_result = $validate->scene('driver-publish')->check($param);
+        }else if(3 == $type){
+            $validate_result = $validate->scene('driver-publish')->check($param);
+        }else {
+
+        }
+
     }
     //更新
     public function update($id, Request $request, UserModel $model, UserValidate $validate)
